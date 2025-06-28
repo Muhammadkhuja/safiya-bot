@@ -23,6 +23,13 @@ export class BotUpdate {
     await this.BotService.onName(ctx);
   }
 
+  
+  @On("location")
+  async Onlocation(@Ctx() ctx: Context) {
+    return this.BotService.onLocation(ctx);
+  }
+
+
 //   @On("message")
 //   async OnMessage(@Ctx() ctx: Context) {
 //     console.log(ctx.botInfo);

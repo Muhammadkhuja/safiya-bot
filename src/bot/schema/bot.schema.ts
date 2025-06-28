@@ -31,6 +31,9 @@ export class Bot{
 
   @Prop({ type: String, maxlength: 50 })
   location: string;
+  
+  // @Prop({ required: true, maxlength: 50 })
+  // last_state: string;
 }
 
 export const BotSchema = SchemaFactory.createForClass(Bot);
