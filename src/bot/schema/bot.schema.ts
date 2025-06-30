@@ -1,10 +1,10 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Model } from 'mongoose';
+import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
+import { Document, Model } from "mongoose";
 
 export type BotDocument = Bot & Document;
 
-@Schema({ collection: 'bot' })
-export class Bot{
+@Schema({ collection: "bot" })
+export class Bot {
   @Prop({ type: Number, required: true, unique: true })
   user_id: number;
 
@@ -26,12 +26,15 @@ export class Bot{
   @Prop({ type: String, maxlength: 3 })
   lang: string;
 
+  @Prop({ type: String})
+  illness: string;
+
   @Prop({ type: Boolean, default: false })
   status: boolean;
 
   @Prop({ type: String, maxlength: 50 })
   location: string;
-  
+
   // @Prop({ required: true, maxlength: 50 })
   // last_state: string;
 }
