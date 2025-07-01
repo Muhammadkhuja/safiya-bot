@@ -158,7 +158,58 @@ export class BotService {
   }
 
   // Matnli javoblar uchun umumiy handler
-  async handleText(ctx: Context) {
+  
+  // async handleText(ctx: Context) {
+  //   const user_id = ctx.from?.id;
+  //   if (!ctx.message || !("text" in ctx.message)) return;
+  //   const text = ctx.message.text.trim();
+  //   if (!user_id || !text) return;
+
+  //   const user = await this.botModel.findOne({ user_id });
+
+  //   // Ism hali yo‘q bo‘lsa, ismni saqlash
+  //   if (user && !user.name) {
+  //     return this.onName(ctx);
+  //   }
+
+  //   // ❌ Yo‘q -> sog'lom deb saqlash
+  //   if (text === "❌ Yo‘q") {
+  //     if (user) {
+  //       user.illness = "sog'lom";
+  //       await user.save();
+  //     }
+  //     await ctx.reply("✅ Siz sog'lom deb belgilandingiz.", {
+  //       reply_markup: Markup.removeKeyboard().reply_markup,
+  //     });
+  //     // return this.nextStep(ctx);
+  //   }
+
+  //   // ✅ Ha -> kasallik so‘rash
+  //   if (text === "✅ Ha") {
+  //     this.kasallikMap.set(user_id, true); // ➤ Bu foydalanuvchidan kasallik haqida matn kutamiz degani
+  //     await ctx.reply(
+  //       "📝 Qanday kasallik borligini yozing (masalan: gripp, allergiya)",
+  //       // Markup.removeKeyboard() // ✅ to‘g‘ri
+  //     );
+  //     return;
+  //   }
+
+  //   // Foydalanuvchi kasallik nomini yozgan bo‘lsa
+  //   if (this.kasallikMap.has(user_id)) {
+  //     if (user) {
+  //       user.illness = text; // qanday yozgan bo‘lsa, shunday saqlaymiz
+  //       await user.save();
+  //       this.kasallikMap.delete(user_id);
+  //       await ctx.reply(`✅ Kasalligingiz saqlandi: ${text}`);
+  //       console.log(text, "kesza;orifnero");
+  //       // return this.nextStep(ctx);
+  //     }
+  //   }
+  //   return ctx.reply("❓ Noma'lum buyruq. Iltimos, tugmani bosing !");
+  // }
+
+async handleText(ctx: Context) {
+  try {
     const user_id = ctx.from?.id;
     if (!ctx.message || !("text" in ctx.message)) return;
     const text = ctx.message.text.trim();
@@ -177,19 +228,18 @@ export class BotService {
         user.illness = "sog'lom";
         await user.save();
       }
-      await ctx.reply("✅ Siz sog'lom deb belgilandingiz.", {
-        reply_markup: Markup.removeKeyboard().reply_markup,
-      });
-      return this.nextStep(ctx);
+      await ctx.reply("✅ Siz sog'lom deb belgilandingiz.", Markup.removeKeyboard());
+      return;
     }
 
     // ✅ Ha -> kasallik so‘rash
     if (text === "✅ Ha") {
       this.kasallikMap.set(user_id, true); // ➤ Bu foydalanuvchidan kasallik haqida matn kutamiz degani
-      return ctx.reply(
+      await ctx.reply(
         "📝 Qanday kasallik borligini yozing (masalan: gripp, allergiya)",
-        { reply_markup: Markup.removeKeyboard().reply_markup } // ➤ Keyboard'ni tozalab yuborish
+        Markup.removeKeyboard()
       );
+      return;
     }
 
     // Foydalanuvchi kasallik nomini yozgan bo‘lsa
@@ -199,16 +249,25 @@ export class BotService {
         await user.save();
         this.kasallikMap.delete(user_id);
         await ctx.reply(`✅ Kasalligingiz saqlandi: ${text}`);
-        return this.nextStep(ctx);
+        console.log(text, "kasallik yozuvi saqlandi");
+        return;
       }
     }
-    return ctx.reply("❓ Noma'lum buyruq. Iltimos, tugmani bosing !");
+
+    // Agar yuqoridagi shartlar bajarmasa, noma'lum buyruq
+    return await ctx.reply("❓ Noma'lum buyruq. Iltimos, tugmani bosing !");
+  } catch (error) {
+    console.error("Xatolik handleText funksiyasida:", error);
+    await ctx.reply("❗️ Ichki xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring.");
   }
+}
+
+
 
   // Keyingi bosqich (kelajakda xizmat turi, manzil, va h.k.)
-  async nextStep(ctx: Context) {
-    await ctx.reply(
-      "🚀 Ro‘yxatdan o‘tish tugadi! Yaqinda xizmatni boshlaysiz."
-    );
-  }
+  // async nextStep(ctx: Context) {
+  //   await ctx.reply(
+  //     "🚀 Ro‘yxatdan o‘tish tugadi! Yaqinda xizmatni boshlaysiz."
+  //   );
+  // }
 }
