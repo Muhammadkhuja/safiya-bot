@@ -437,3 +437,2010 @@ export class BotService {
     );
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import { Injectable } from "@nestjs/common";
+import { Context, Markup } from "telegraf";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model } from "mongoose";
+import { Bot, BotDocument } from "./schema/bot.schema";
+import { log } from "console";
+
+@Injectable()
+export class BotService {
+  private kasallikMap = new Map<number, boolean>();
+
+  constructor(
+    @InjectModel(Bot.name) private readonly botModel: Model<BotDocument>
+  ) {}
+
+  // /start komandasi
+  async start(ctx: Context) {
+    await ctx.reply("Assalomu alaykum! Telefon raqamingizni yuboring:", {
+      reply_markup: {
+        keyboard: [
+          [{ text: "📞 Telefon raqamni yuborish", request_contact: true }],
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
+  }
+
+  // Telefon raqamini qabul qilish
+  async onContact(ctx: Context) {
+    const user_id = ctx.from?.id;
+    if (!user_id || !ctx.message) {
+      return ctx.reply("❗️ Foydalanuvchi yoki xabar aniqlanmadi.");
+    }
+
+    if ("contact" in ctx.message && ctx.message.contact?.phone_number) {
+      const contact = ctx.message.contact;
+      let user = await this.botModel.findOne({ user_id });
+
+      if (user) {
+        user.phone_number = contact.phone_number;
+        await user.save();
+      } else {
+        await this.botModel.create({
+          user_id,
+          phone_number: contact.phone_number,
+          user_name: ctx.from?.username ?? "",
+          first_name: ctx.from?.first_name ?? "",
+          last_name: ctx.from?.last_name ?? "",
+          lang: ctx.from?.language_code ?? "",
+        });
+      }
+
+      await ctx.reply("✅ Endi ismingizni yuboring:", {
+        reply_markup: { remove_keyboard: true },
+      });
+    } else {
+      await ctx.reply("❗️ Telefon raqami aniqlanmadi.");
+    }
+  }
+
+  // Ismni qabul qilish
+  async onName(ctx: Context) {
+    const user_id = ctx.from?.id;
+    if (!user_id || !ctx.message) return;
+
+    if ("text" in ctx.message && typeof ctx.message.text === "string") {
+      const text = ctx.message.text.trim();
+
+      if (!/^[a-zA-Z\u0400-\u04FF\s'-]{2,}$/.test(text)) {
+        return ctx.reply(
+          "❗️ Iltimos, faqat harflardan iborat ismingizni yozing."
+        );
+      }
+
+      const existingUser = await this.botModel.findOne({ user_id });
+
+      if (existingUser) {
+        if (!existingUser.name) {
+          existingUser.name = text;
+          await existingUser.save();
+          await ctx.reply(`✅ Ismingiz saqlandi: ${text}`);
+        }
+      } else {
+        await this.botModel.create({
+          user_id,
+          name: text,
+          user_name: ctx.from?.username ?? "",
+          first_name: ctx.from?.first_name ?? "",
+          last_name: ctx.from?.last_name ?? "",
+          lang: ctx.from?.language_code ?? "",
+        });
+
+        await ctx.reply(`✅ Ismingiz saqlandi: ${text}`);
+      }
+
+      // Lokatsiya so‘rash
+
+    } else {
+      await ctx.reply("❌ Iltimos, faqat matn yuboring.");
+    }
+  }
+
+  // Joylashuvni qabul qilish
+  // async onLocation(ctx: Context) {
+  //   const user_id = ctx.from?.id;
+  //   if (!user_id || !ctx.message) {
+  //     return ctx.reply("❗️ Foydalanuvchi yoki xabar aniqlanmadi.");
+  //   }
+
+  //   // Faqat location kelgandagina saqlaymiz
+  //   if ("location" in ctx.message && ctx.message.location) {
+  //     const { latitude, longitude } = ctx.message.location;
+  //     const user = await this.botModel.findOne({ user_id });
+
+  //     if (!user) {
+  //       return ctx.reply("Iltimos, avval /start buyrug'ini bosing.");
+  //     }
+
+  //     const location = `${latitude},${longitude}`;
+  //     user.location = location;
+  //     await user.save();
+
+  //     await ctx.reply("✅ Joylashuvingiz saqlandi.");
+  //     return this.kasallikniSozlash(ctx);
+  //   }
+
+  //   // ⚠️ Aks holda noto‘g‘ri xabar yuborilgan bo‘ladi (matn, sticker, rasm...)
+  //   return ctx.reply("❗️ Iltimos, tugmani bosib joylashuv yuboring!", {
+  //     reply_markup: {
+  //       keyboard: [
+  //         [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+  //       ],
+  //       resize_keyboard: true,
+  //       one_time_keyboard: true,
+  //     },
+  //   });
+
+  //   // return ctx.reply("Yo lokatsiya ");
+  // }
+
+async handleText(ctx: Context) {
+  try {
+    const user_id = ctx.from?.id;
+    if (!ctx.message || !("text" in ctx.message)) return;
+    const text = ctx.message.text.trim();
+    if (!user_id || !text) return;
+
+    const user = await this.botModel.findOne({ user_id });
+
+    // Ism hali yo‘q bo‘lsa, ismni saqlash
+    if (user && !user.name) {
+      return this.onName(ctx);
+    }
+
+    // ❌ Yo‘q -> sog'lom deb saqlash
+    if (text === "❌ Yo‘q") {
+      if (user) {
+        user.illness = "sog'lom";
+        await user.save();
+      }
+      await ctx.reply("✅ Siz sog'lom deb belgilandingiz.", Markup.removeKeyboard());
+      return;
+    }
+
+    // ✅ Ha -> kasallik so‘rash
+    if (text === "✅ Ha") {
+      this.kasallikMap.set(user_id, true); // ➤ Bu foydalanuvchidan kasallik haqida matn kutamiz degani
+      await ctx.reply(
+        "📝 Qanday kasallik borligini yozing (masalan: gripp, allergiya)",
+        Markup.removeKeyboard()
+      );
+      return;
+    }
+
+    // Foydalanuvchi kasallik nomini yozgan bo‘lsa
+    if (this.kasallikMap.has(user_id)) {
+      if (user) {
+        user.illness = text; // qanday yozgan bo‘lsa, shunday saqlaymiz
+        await user.save();
+        this.kasallikMap.delete(user_id);
+        await ctx.reply(`✅ Kasalligingiz saqlandi: ${text}`);
+        return;
+      }
+    }
+
+    // Agar yuqoridagi shartlar bajarmasa, noma'lum buyruq
+    return await ctx.reply("❓ Noma'lum buyruq. Iltimos, tugmani bosing !");
+
+          await ctx.reply("📍 Endi joylashuvingizni yuboring:", {
+        reply_markup: {
+          keyboard: [
+            [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+  } catch (error) {
+    console.error("Xatolik handleText funksiyasida:", error);
+    await ctx.reply("❗️ Ichki xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring.");
+  }
+}
+
+
+async onLocation(ctx: Context) {
+  try {
+    const user_id = ctx.from?.id;
+    if (!user_id || !ctx.message) {
+      return ctx.reply("❗️ Foydalanuvchi yoki xabar aniqlanmadi.");
+    }
+    console.log("qwertyui");
+    
+
+    // Faqat location kelgandagina saqlaymiz
+    if ("location" in ctx.message && ctx.message.location) {
+      const { latitude, longitude } = ctx.message.location;
+      const user = await this.botModel.findOne({ user_id });
+
+      if (!user) {
+        return ctx.reply("Iltimos, avval /start buyrug'ini bosing.");
+      }
+
+      const location = `${latitude},${longitude}`;
+      user.location = location;
+      await user.save();
+
+      await ctx.reply("✅ Joylashuvingiz saqlandi.");
+      return this.kasallikniSozlash(ctx);
+    }
+
+    // ⚠️ Aks holda noto‘g‘ri xabar yuborilgan bo‘ladi (matn, sticker, rasm...)
+    return ctx.reply("❗️ Iltimos, tugmani bosib joylashuv yuboring!", {
+      reply_markup: {
+        keyboard: [
+          [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
+  } catch (error) {
+    console.error("onLocation error:", error);
+    return ctx.reply("⚠️ Xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring.");
+  }
+}
+
+
+  // Kasallik haqida tugmalar
+  async kasallikniSozlash(ctx: Context) {
+    await ctx.reply("🩺 Sizda hozirda biron kasallik bormi?", {
+      reply_markup: {
+        keyboard: [["✅ Ha", "❌ Yo‘q"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
+  }
+
+
+
+  // Keyingi bosqich (kelajakda xizmat turi, manzil, va h.k.)
+  // async nextStep(ctx: Context) {
+  //   await ctx.reply(
+  //     "🚀 Ro‘yxatdan o‘tish tugadi! Yaqinda xizmatni boshlaysiz."
+  //   );
+  // }
+}
+
+
+
+// import { Injectable } from "@nestjs/common";
+// import { Context, Markup } from "telegraf";
+// import { InjectModel } from "@nestjs/mongoose";
+// import { Model } from "mongoose";
+// import { Bot, BotDocument } from "./schema/bot.schema";
+
+// @Injectable()
+// export class BotService {
+//   private kasallikMap = new Map<number, boolean>();
+
+//   constructor(
+//     @InjectModel(Bot.name) private readonly botModel: Model<BotDocument>
+//   ) { }
+
+//   // /start komandasi
+//   async start(ctx: Context) {
+//     await ctx.reply("Assalomu alaykum! Iltimos telefon raqamingizni yuboring", {
+//       reply_markup: {
+//         keyboard: [
+//           [{ text: "📞 Telefon raqamni yuborish", request_contact: true }],
+//         ],
+//         resize_keyboard: true,
+//         one_time_keyboard: true,
+//       },
+//     });
+//   }
+
+//   // Telefon raqamini qabul qilish
+//   async onContact(ctx: Context) {
+//     const user_id = ctx.from?.id;
+//     if (!user_id || !ctx.message) {
+//       return ctx.reply("❗️ Foydalanuvchi yoki xabar aniqlanmadi.");
+//     }
+
+//     if ("contact" in ctx.message && ctx.message.contact?.phone_number) {
+//       const contact = ctx.message.contact;
+//       let user = await this.botModel.findOne({ user_id });
+
+//       if (user) {
+//         user.phone_number = contact.phone_number;
+//         await user.save();
+//       } else {
+//         await this.botModel.create({
+//           user_id,
+//           phone_number: contact.phone_number,
+//           user_name: ctx.from?.username ?? "",
+//           first_name: ctx.from?.first_name ?? "",
+//           last_name: ctx.from?.last_name ?? "",
+//           lang: ctx.from?.language_code ?? "",
+//         });
+//       }
+
+//       await ctx.reply("✅ Endi ismingizni yuboring", {
+//         reply_markup: { remove_keyboard: true },
+//       });
+//     } else {
+//       await ctx.reply("❗️ Telefon raqami aniqlanmadi.");
+//     }
+//   }
+
+//   // Ismni qabul qilish
+//   async onName(ctx: Context) {
+//     const user_id = ctx.from?.id;
+//     if (!user_id || !ctx.message) return;
+
+//     if ("text" in ctx.message && typeof ctx.message.text === "string") {
+//       const text = ctx.message.text.trim();
+
+//       if (!/^[a-zA-Z\u0400-\u04FF\s'-]{2,}$/.test(text)) {
+//         return ctx.reply(
+//           "❗️ Iltimos, faqat harflardan iborat ismingizni yozing."
+//         );
+//       }
+
+//       if (
+//         /[\p{Emoji}]/u.test(text)) {
+//         await ctx.reply("❗️ Iltimos, emoji yubormang. Faqat matn kiriting.");
+//         return
+//       }
+
+//       const existingUser = await this.botModel.findOne({ user_id });
+
+//       if (existingUser) {
+//         if (!existingUser.name) {
+//           existingUser.name = text;
+//           await existingUser.save();
+//           await ctx.reply(`${text} Ismingiz saqlandi`);
+//         }
+//       } else {
+//         await this.botModel.create({
+//           user_id,
+//           name: text,
+//           user_name: ctx.from?.username ?? "",
+//           first_name: ctx.from?.first_name ?? "",
+//           last_name: ctx.from?.last_name ?? "",
+//           lang: ctx.from?.language_code ?? "",
+//         });
+
+//         await ctx.reply(`${text} Ismingiz saqlandi`);
+//       }
+
+//       await ctx.reply("📍 Endi joylashuvingizni yuboring:", {
+//         reply_markup: {
+//           keyboard: [[{ text: "📍 Joylashuvni yuborish", request_location: true }]],
+//           resize_keyboard: true,
+//           one_time_keyboard: true,
+//         },
+//       });
+//     } else {
+//       await ctx.reply("❌ Iltimos, faqat matn yuboring.");
+//     }
+//   }
+
+//   // Textni umumiy ishlovchi
+//   async handleText(ctx: Context) {
+//     try {
+//       const user_id = ctx.from?.id;
+//       if (!ctx.message || !("text" in ctx.message)) return;
+//       const text = ctx.message.text.trim();
+//       if (!user_id || !text) return;
+
+//       const user = await this.botModel.findOne({ user_id });
+
+//       // 🔁 Agar foydalanuvchi yo'q bo‘lsa yoki telefon raqam yo‘q bo‘lsa → /start
+//       if (!user || !user.phone_number) {
+//         return this.start(ctx);
+//       }
+
+//       // 🔁 Agar ism va illness mavjud bo‘lsa → onLocation bosqichiga o‘tkazamiz
+//       if (user.name && user.illness) {
+//         return this.onLocation(ctx);
+//       }
+
+//       // ⬇️ Ism hali yo‘q bo‘lsa → ismni qabul qilish
+//       if (!user.name) {
+//         return this.onName(ctx);
+//       }
+
+//       // ✅ Ha → kasallik yozishni so‘rash
+//       if (text === "✅ Ha") {
+//         this.kasallikMap.set(user_id, true);
+//         await ctx.reply(
+//           "📝 Farzandingizda qanday kasallik borligini yozing (masalan: gripp, allergiya)",
+//           Markup.removeKeyboard()
+//         );
+//         return;
+//       }
+
+//       // ❌ Yo‘q → sog'lom deb saqlash
+//       if (text === "❌ Yo‘q") {
+//         user.illness = "sog'lom";
+//         await user.save();
+//         await ctx.reply("✅ Farzadingizni sog'lom deb belgilandingiz.", Markup.removeKeyboard());
+//         return;
+//       }
+
+//       // ✍️ Kasallik matni kiritilsa
+//       if (this.kasallikMap.has(user_id)) {
+//         user.illness = text;
+//         await user.save();
+//         this.kasallikMap.delete(user_id);
+//         await ctx.reply(`✅ Farzadingizni kasalligi saqlandi: ${text}`);
+//         return;
+//       }
+
+//       // ⛔️ Noma'lum buyruq → location so‘rash
+//       console.log("Reply argument:-------------------------------------------------------------------");
+//       await ctx.reply("❓ Noma'lum buyruq. Iltimos, tugmani bosing ⬇️");
+
+//       await ctx.reply("📍 Endi joylashuvingizni yuboring:", {
+//         reply_markup: {
+//           keyboard: [
+//             [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+//           ],
+//           resize_keyboard: true,
+//           one_time_keyboard: true,
+//         },
+//       });
+//     } catch (error) {
+//       console.error("Xatolik handleText funksiyasida:", error);
+//       await ctx.reply("❗️ Ichki xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring.");
+//       return this.start(ctx);
+//     }
+//   }
+
+//   // Kasallik haqida tugmalar
+//   async kasallikniSozlash(ctx: Context) {
+//     await ctx.reply("🩺 Sizning farzadingizda hozirda biron kasallik bormi?", {
+//       reply_markup: {
+//         keyboard: [["✅ Ha", "❌ Yo‘q"]],
+//         resize_keyboard: true,
+//         one_time_keyboard: true,
+//       },
+//     });
+//   }
+
+//   // Joylashuvni qabul qilish (oxirga ko‘chirildi)
+//   // async onLocation(ctx: Context) {
+//   //   try {
+//   //     const user_id = ctx.from?.id;
+//   //     if (!user_id || !ctx.message) {
+//   //       return ctx.reply("❗️ Foydalanuvchi yoki xabar aniqlanmadi.");
+//   //     }
+//   //     console.log("qwertyui");
+
+//   //     // Faqat location kelgandagina saqlaymiz
+//   //     if ("location" in ctx.message && ctx.message.location) {
+//   //       const { latitude, longitude } = ctx.message.location;
+//   //       const user = await this.botModel.findOne({ user_id });
+
+//   //       if (!user) {
+//   //         return ctx.reply("Iltimos, avval /start buyrug'ini bosing.");
+//   //       }
+
+//   //       const location = `${latitude},${longitude}`;
+//   //       user.location = location;
+//   //       await user.save();
+
+//   //       await ctx.reply("✅ Joylashuvingiz saqlandi.");
+//   //       return this.kasallikniSozlash(ctx);
+//   //     }
+
+//   //     // ⚠️ Aks holda noto‘g‘ri xabar yuborilgan bo‘ladi
+//   //     return ctx.reply("❗️ Iltimos, tugmani bosib joylashuv yuboring!", {
+//   //       reply_markup: {
+//   //         keyboard: [
+//   //           [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+//   //         ],
+//   //         resize_keyboard: true,
+//   //         one_time_keyboard: true,
+//   //       },
+//   //     });
+//   //   } catch (error) {
+//   //     console.error("onLocation error:", error);
+//   //     return ctx.reply("⚠️ Xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring.");
+//   //   }
+//   // }
+
+//   async onLocation(ctx: Context) {
+//     try {
+//       const user_id = ctx.from?.id;
+//       if (!user_id || !ctx.message) {
+//         return ctx.reply("❗️ Foydalanuvchi yoki xabar aniqlanmadi.");
+//       }
+//       console.log("qwertyui");
+
+//       // Faqat location kelgandagina saqlaymiz
+//       if ("location" in ctx.message && ctx.message.location) {
+//         const { latitude, longitude } = ctx.message.location;
+//         const user = await this.botModel.findOne({ user_id });
+
+//         if (!user) {
+//           return ctx.reply("Iltimos, avval /start buyrug'ini bosing.");
+//         }
+
+//         const location = `${latitude},${longitude}`;
+//         user.location = location;
+//         await user.save();
+
+//         await ctx.reply("✅ Joylashuvingiz saqlandi.");
+
+//         // ✅ Agar illness yo‘q bo‘lsa — Ha / Yo‘q tugmalarini yuborish
+//         if (!user.illness) {
+//           return ctx.reply("🩺 Sizning farzandingizda hozirda biron kasallik bormi?", {
+//             reply_markup: {
+//               keyboard: [["✅ Ha", "❌ Yo‘q"]],
+//               resize_keyboard: true,
+//               one_time_keyboard: true,
+//             },
+//           });
+//         }
+
+//         // ✅ Aks holda kasallikniSozlash() chaqiriladi
+//         return this.kasallikniSozlash(ctx);
+//       }
+
+
+//       // ⚠️ Aks holda noto‘g‘ri xabar yuborilgan bo‘ladi
+//       if (!location) {
+//         return ctx.reply("❗️ Iltimos, tugmani bosib joylashuv yuboring!", {
+//           reply_markup: {
+//             keyboard: [
+//               [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+//             ],
+//             resize_keyboard: true,
+//             one_time_keyboard: true,
+//           },
+//         });
+//       } else {
+//         this.kasallikniSozlash(ctx)
+//       }
+//     } catch (error) {
+//       console.error("onLocation error:", error);
+//       return ctx.reply("⚠️ Xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring.");
+//     }
+//   }
+// }
+
+
+
+
+  // async handleText(ctx: Context) {
+  //   try {
+  //     const user_id = ctx.from?.id;
+  //     if (!ctx.message || !("text" in ctx.message)) return;
+  //     const text = ctx.message.text.trim();
+  //     if (!user_id || !text) return;
+
+  //     const user = await this.botModel.findOne({ user_id });
+
+  //     if (!user || !user.phone_number) {
+  //       return this.start(ctx);
+  //     }
+
+  //     if (user.name && user.illness) {
+  //       return this.onLocation(ctx);
+  //     }
+
+  //     if (!user.name) {
+  //       return this.onName(ctx);
+  //     }
+
+  //     if (text === "✅ Ha") {
+  //       this.kasallikMap.set(user_id, true);
+  //       await ctx.reply(
+  //         "📝 Farzandingizda qanday kasallik borligini yozing (masalan: gripp, allergiya)",
+  //         Markup.removeKeyboard()
+  //       );
+  //       return;
+  //     }
+
+  //     if (text === "❌ Yo‘q") {
+  //       user.illness = "sog'lom";
+  //       await user.save();
+  //       await ctx.reply("✅ Farzandingiz sog'lom deb belgilandi.", Markup.removeKeyboard());
+  //       return;
+  //     }
+
+  //     if (this.kasallikMap.has(user_id)) {
+  //       user.illness = text;
+  //       await user.save();
+  //       this.kasallikMap.delete(user_id);
+  //       await ctx.reply(`✅ Kasallik saqlandi: ${text}`);
+  //       return;
+  //     }
+
+  //     await ctx.reply("❓ Noma'lum buyruq. Iltimos, tugmani bosing ⬇️");
+
+  //     await ctx.reply("📍 Endi joylashuvingizni yuboring:", {
+  //       reply_markup: {
+  //         keyboard: [
+  //           [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+  //         ],
+  //         resize_keyboard: true,
+  //         one_time_keyboard: true,
+  //       },
+  //     });
+  //   } catch (error) {
+  //     console.error("Xatolik handleText funksiyasida:", error);
+  //     await ctx.reply("❗️ Ichki xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring.");
+  //     return this.start(ctx);
+  //   }
+  // }
+
+  // async kasallikniSozlash(ctx: Context) {
+  //   await ctx.reply("🩺 Sizning farzandingizda hozirda biron kasallik bormi?", {
+  //     reply_markup: {
+  //       keyboard: [["✅ Ha", "❌ Yo‘q"]],
+  //       resize_keyboard: true,
+  //       one_time_keyboard: true,
+  //     },
+  //   });
+  //   if (!this.kasallikniSozlash)
+  //     return this.kasallikniSozlash
+  // }
+
+
+
+
+  // async onLocation(ctx: Context) {
+  //   try {
+  //     const user_id = ctx.from?.id;
+  //     if (!user_id || !ctx.message) {
+  //       return ctx.reply("❗️ Foydalanuvchi yoki xabar aniqlanmadi.");
+  //     }
+
+  //     if ("location" in ctx.message && ctx.message.location) {
+  //       const { latitude, longitude } = ctx.message.location;
+  //       const user = await this.botModel.findOne({ user_id });
+
+  //       if (!user) {
+  //         return ctx.reply("Iltimos, avval /start buyrug'ini bosing.");
+  //       }
+
+  //       const location = `${latitude},${longitude}`;
+  //       user.location = location;
+  //       await user.save();
+
+  //       await ctx.reply("✅ Joylashuvingiz saqlandi.");
+
+  //       // if (!user.illness) {
+  //       //   return ctx.reply("🩺 Sizning farzandingizda hozirda biron kasallik bormi?", {
+  //       //     reply_markup: {
+  //       //       keyboard: [["✅ Ha", "❌ Yo‘q"]],
+  //       //       resize_keyboard: true,
+  //       //       one_time_keyboard: true,
+  //       //     },
+  //       //   });
+  //       // }
+
+  //       // return this.kasallikniSozlash(ctx);
+  //     }
+
+  //     return ctx.reply("❗️ Iltimos, tugmani bosib joylashuv yuboring!", {
+  //       reply_markup: {
+  //         keyboard: [
+  //           [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+  //         ],
+  //         resize_keyboard: true,
+  //         one_time_keyboard: true,
+  //       },
+  //     });
+  //   } catch (error) {
+  //     console.error("onLocation error:", error);
+  //     return ctx.reply("⚠️ Xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring.");
+  //   }
+  // }
+
+
+  //   async onLocation(ctx: Context) {
+  //   try {
+  //     const user_id = ctx.from?.id;
+  //     if (!user_id || !ctx.message) {
+  //       return ctx.reply("❗️ Foydalanuvchi yoki xabar aniqlanmadi.");
+  //     }
+
+  //     const user = await this.botModel.findOne({ user_id });
+  //     if (!user) {
+  //       return ctx.reply("Iltimos, avval /start buyrug'ini bosing.");
+  //     }
+
+  //     if ("location" in ctx.message && ctx.message.location) {
+  //       const { latitude, longitude } = ctx.message.location;
+
+  //       const location = `${latitude},${longitude}`;
+  //       user.location = location;
+  //       await user.save();
+
+  //       await ctx.reply("✅ Joylashuvingiz saqlandi.");
+  //       return this.kasallikniSozlash(ctx);
+  //     }
+
+  //     return ctx.reply("❗️ Iltimos, tugmani bosib joylashuv yuboring!", {
+  //       reply_markup: {
+  //         keyboard: [
+  //           [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+  //         ],
+  //         resize_keyboard: true,
+  //         one_time_keyboard: true,
+  //       },
+  //     });
+  //   } catch (error) {
+  //     console.error("onLocation error:", error);
+  //     return ctx.reply("⚠️ Xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring.");
+  //   }
+  // }
+
+
+
+
+
+//------------------
+
+
+import { Injectable } from "@nestjs/common";
+import { Context, Markup } from "telegraf";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model } from "mongoose";
+import { Bot, BotDocument } from "./schema/bot.schema";
+
+@Injectable()
+export class BotService {
+  private kasallikMap = new Map<number, boolean>();
+
+  constructor(
+    @InjectModel(Bot.name) private readonly botModel: Model<BotDocument>
+  ) {}
+
+  async start(ctx: Context) {
+    await ctx.reply("Assalomu alaykum! Iltimos telefon raqamingizni yuboring", {
+      reply_markup: {
+        keyboard: [
+          [{ text: "📞 Telefon raqamni yuborish", request_contact: true }],
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
+  }
+
+  async onContact(ctx: Context) {
+    const user_id = ctx.from?.id;
+    if (!user_id || !ctx.message) {
+      return ctx.reply("❗️ Foydalanuvchi yoki xabar aniqlanmadi.");
+    }
+
+    if ("contact" in ctx.message && ctx.message.contact?.phone_number) {
+      const contact = ctx.message.contact;
+      let user = await this.botModel.findOne({ user_id });
+
+      if (user) {
+        user.phone_number = contact.phone_number;
+        await user.save();
+      } else {
+        await this.botModel.create({
+          user_id,
+          phone_number: contact.phone_number,
+          user_name: ctx.from?.username ?? "",
+          first_name: ctx.from?.first_name ?? "",
+          last_name: ctx.from?.last_name ?? "",
+          lang: ctx.from?.language_code ?? "",
+        });
+      }
+
+      await ctx.reply("✅ Endi ismingizni yuboring", {
+        reply_markup: { remove_keyboard: true },
+      });
+    } else {
+      await ctx.reply("❗️ Telefon raqami aniqlanmadi.");
+    }
+  }
+
+  async onName(ctx: Context) {
+    const user_id = ctx.from?.id;
+    if (!user_id || !ctx.message) return;
+
+    if ("text" in ctx.message && typeof ctx.message.text === "string") {
+      const text = ctx.message.text.trim();
+
+      if (!/^[a-zA-Z\u0400-\u04FF\s'-]{2,}$/.test(text)) {
+        return ctx.reply(
+          "❗️ Iltimos, faqat harflardan iborat ismingizni yozing."
+        );
+      }
+
+      if (/[\p{Emoji}]/u.test(text)) {
+        return ctx.reply("❗️ Iltimos, emoji yubormang. Faqat matn kiriting.");
+      }
+
+      const existingUser = await this.botModel.findOne({ user_id });
+
+      if (existingUser) {
+        if (!existingUser.name) {
+          existingUser.name = text;
+          await existingUser.save();
+          await ctx.reply(`${text} ismingiz saqlandi.`);
+        }
+      } else {
+        await this.botModel.create({
+          user_id,
+          name: text,
+          user_name: ctx.from?.username ?? "",
+          first_name: ctx.from?.first_name ?? "",
+          last_name: ctx.from?.last_name ?? "",
+          lang: ctx.from?.language_code ?? "",
+        });
+
+        await ctx.reply(`${text} ismingiz saqlandi.`);
+      }
+
+      await ctx.reply("📍 Endi joylashuvingizni yuboring:", {
+        reply_markup: {
+          keyboard: [
+            [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+    } else {
+      await ctx.reply("❌ Iltimos, faqat matn yuboring.");
+    }
+  }
+
+  async handleText(ctx: Context) {
+    try {
+      const user_id = ctx.from?.id;
+      if (!ctx.message || !("text" in ctx.message)) return;
+      const text = ctx.message.text.trim();
+      if (!user_id || !text) return;
+
+      const user = await this.botModel.findOne({ user_id });
+
+      if (!user || !user.phone_number) {
+        return this.start(ctx);
+      }
+
+      // 1. Ism hali kiritilmagan bo‘lsa
+      if (!user.name) {
+        return this.onName(ctx);
+      }
+
+      // 2. ❌ Yo‘q — sog'lom deb belgilash
+      if (text === "❌ Yo‘q") {
+        user.illness = "sog'lom";
+        await user.save();
+        await ctx.reply(
+          "✅ Farzandingiz sog'lom deb belgilandi.",
+          Markup.removeKeyboard()
+        );
+
+        // Joylashuvga o'tish
+        return ctx.reply("📍 Endi joylashuvingizni yuboring:", {
+          reply_markup: {
+            keyboard: [
+              [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+            ],
+            resize_keyboard: true,
+            one_time_keyboard: true,
+          },
+        });
+      }
+
+      // 3. ✅ Ha — kasallik yozilishini boshlash
+      if (text === "✅ Ha") {
+        this.kasallikMap.set(user_id, true);
+        return ctx.reply(
+          "📝 Farzandingizda qanday kasallik borligini yozing (masalan: gripp, allergiya)",
+          Markup.removeKeyboard()
+        );
+      }
+
+      // 4. Kasallik nomi faqat ✅ Ha dan keyin matn kiritilganda qabul qilinadi
+      if (this.kasallikMap.has(user_id)) {
+        user.illness = text;
+        await user.save();
+        this.kasallikMap.delete(user_id);
+
+        await ctx.reply(`✅ Kasallik saqlandi: ${text}`);
+
+        return ctx.reply("📍 Endi joylashuvingizni yuboring:", {
+          reply_markup: {
+            keyboard: [
+              [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+            ],
+            resize_keyboard: true,
+            one_time_keyboard: true,
+          },
+        });
+      }
+
+      // 5. Agar illness yo‘q va foydalanuvchi tugma bosmasdan matn yozgan bo‘lsa
+      if (!user.illness) {
+        return ctx.reply("❗️ Iltimos, quyidagi tugmalardan birini tanlang:", {
+          reply_markup: {
+            keyboard: [["✅ Ha", "❌ Yo‘q"]],
+            resize_keyboard: true,
+            one_time_keyboard: true,
+          },
+        });
+      }
+
+      // 6. Noma'lum boshqa holatlar
+      await ctx.reply(
+        "❓ Noma'lum buyruq. Iltimos, faqat tugmalardan foydalaning."
+      );
+    } catch (error) {
+      console.error("Xatolik handleText funksiyasida:", error);
+      await ctx.reply(
+        "❗️ Ichki xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring."
+      );
+      return this.start(ctx);
+    }
+  }
+  async askIllnessQuestion(ctx: Context) {
+    return ctx.reply(
+      "🩺 Sizning farzandingizda hozirda biron kasallik bormi?",
+      {
+        reply_markup: {
+          keyboard: [["✅ Ha", "❌ Yo‘q"]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      }
+    );
+  }
+
+  // async onLocation(ctx: Context) {
+  //   try {
+  //     const user_id = ctx.from?.id;
+  //     if (!user_id || !ctx.message) {
+  //       return ctx.reply("❗️ Foydalanuvchi yoki xabar aniqlanmadi.");
+  //     }
+
+  //     const user = await this.botModel.findOne({ user_id });
+  //     if (!user) {
+  //       return ctx.reply("Iltimos, avval /start buyrug'ini bosing.");
+  //     }
+
+  //     if ("location" in ctx.message && ctx.message.location) {
+  //       const { latitude, longitude } = ctx.message.location;
+
+  //       const location = `${latitude},${longitude}`;
+  //       user.location = location;
+  //       await user.save();
+
+  //       await ctx.reply("✅ Joylashuvingiz saqlandi.");
+
+  //       // illness yo‘qligini tekshir
+  //       // if (!user.illness) {
+  //       //   return this.kasallikMap(ctx);
+  //       // }
+
+  //       // Bu yerga boshqa davom ettiruvchi logika qo‘shishingiz mumkin
+  //       return ctx.reply("🚀 Endi navbatdagi bosqichga o'ting."); // yoki boshqa handler
+  //     }
+
+  //     return ctx.reply("❗️ Iltimos, tugmani bosib joylashuv yuboring!", {
+  //       reply_markup: {
+  //         keyboard: [
+  //           [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+  //         ],
+  //         resize_keyboard: true,
+  //         one_time_keyboard: true,
+  //       },
+  //     });
+  //   } catch (error) {
+  //     console.error("onLocation error:", error);
+  //     return ctx.reply(
+  //       "⚠️ Xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring."
+  //     );
+  //   }
+  // }
+
+  // async askIllnessQuestion(ctx: Context) {
+  //   return ctx.reply("🩺 Sizning farzandingizda hozirda biron kasallik bormi?", {
+  //     reply_markup: {
+  //       keyboard: [["✅ Ha", "❌ Yo‘q"]],
+  //       resize_keyboard: true,
+  //       one_time_keyboard: true,
+  //     },
+  //   });
+  // }
+
+  async onLocation(ctx: Context) {
+    try {
+      const user_id = ctx.from?.id;
+      if (!user_id || !ctx.message) {
+        return ctx.reply("❗️ Foydalanuvchi yoki xabar aniqlanmadi.");
+      }
+
+      const user = await this.botModel.findOne({ user_id });
+      if (!user) {
+        return ctx.reply("Iltimos, avval /start buyrug'ini bosing.");
+      }
+
+      if ("location" in ctx.message && ctx.message.location) {
+        const { latitude, longitude } = ctx.message.location;
+        const location = `${latitude},${longitude}`;
+        user.location = location;
+        await user.save();
+
+        await ctx.reply("✅ Joylashuvingiz saqlandi.", Markup.removeKeyboard());
+
+        // ❗️ Joylashuv yuborilgach kasallik haqida so‘rash
+        return this.askIllnessQuestion(ctx);
+      }
+
+      return ctx.reply("❗️ Iltimos, tugmani bosib joylashuv yuboring!", {
+        reply_markup: {
+          keyboard: [
+            [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+    } catch (error) {
+      console.error("onLocation error:", error);
+      return ctx.reply(
+        "⚠️ Xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring."
+      );
+    }
+  }
+}
+
+
+//----------------------
+
+
+clean Code
+
+import { Injectable } from "@nestjs/common";
+import { Context, Markup } from "telegraf";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model } from "mongoose";
+import { Bot, BotDocument } from "./schema/bot.schema";
+
+@Injectable()
+export class BotService {
+  private kasallikMap = new Map<number, boolean>();
+
+  constructor(
+    @InjectModel(Bot.name) private readonly botModel: Model<BotDocument>
+  ) {}
+
+  async start(ctx: Context) {
+    await ctx.reply("Assalomu alaykum! Iltimos telefon raqamingizni yuboring", {
+      reply_markup: {
+        keyboard: [
+          [{ text: "📞 Telefon raqamni yuborish", request_contact: true }],
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
+  }
+
+  async onContact(ctx: Context) {
+    const user_id = ctx.from?.id;
+    if (!user_id || !ctx.message) return;
+
+    if ("contact" in ctx.message && ctx.message.contact?.phone_number) {
+      const contact = ctx.message.contact;
+      let user = await this.botModel.findOne({ user_id });
+
+      if (user) {
+        user.phone_number = contact.phone_number;
+        await user.save();
+      } else {
+        await this.botModel.create({
+          user_id,
+          phone_number: contact.phone_number,
+          user_name: ctx.from?.username ?? "",
+          first_name: ctx.from?.first_name ?? "",
+          last_name: ctx.from?.last_name ?? "",
+          lang: ctx.from?.language_code ?? "",
+        });
+      }
+
+      await ctx.reply("✅ Endi ismingizni yuboring", {
+        reply_markup: { remove_keyboard: true },
+      });
+    } else {
+      await ctx.reply("❗️ Telefon raqami aniqlanmadi.");
+    }
+  }
+
+  async onName(ctx: Context) {
+    const user_id = ctx.from?.id;
+    if (!user_id || !ctx.message || !("text" in ctx.message)) return;
+    const text = ctx.message.text.trim();
+
+    if (!/^[a-zA-Z\u0400-\u04FF\s'-]{2,}$/.test(text)) {
+      return ctx.reply(
+        "❗️ Iltimos, faqat harflardan iborat ismingizni yozing."
+      );
+    }
+
+    const user = await this.botModel.findOne({ user_id });
+    if (!user) return;
+
+    user.name = text;
+    await user.save();
+
+    await ctx.reply(`✅ ${text} ismingiz saqlandi.`);
+    await ctx.reply("📍 Endi joylashuvingizni yuboring:", {
+      reply_markup: {
+        keyboard: [
+          [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
+  }
+
+  async onLocation(ctx: Context) {
+    const user_id = ctx.from?.id;
+    if (!user_id || !ctx.message) return;
+
+    const user = await this.botModel.findOne({ user_id });
+    if (!user) return ctx.reply("Iltimos, avval /start buyrug'ini bosing.");
+
+    if ("location" in ctx.message && ctx.message.location) {
+      const { latitude, longitude } = ctx.message.location;
+      user.location = `${latitude},${longitude}`;
+      await user.save();
+
+      await ctx.reply("✅ Joylashuvingiz saqlandi.", Markup.removeKeyboard());
+      return this.askIllnessQuestion(ctx);
+    }
+
+    return ctx.reply("❗️ Iltimos, tugmani bosib joylashuv yuboring!", {
+      reply_markup: {
+        keyboard: [
+          [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
+  }
+
+  async askIllnessQuestion(ctx: Context) {
+    return ctx.reply("🩺 Farzandingizda hozirda biron kasallik bormi?", {
+      reply_markup: {
+        keyboard: [["✅ Ha", "❌ Yo‘q"]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
+  }
+
+  // async handleText(ctx: Context) {
+  //   try {
+  //     const user_id = ctx.from?.id;
+  //     if (!ctx.message || !("text" in ctx.message)) return;
+  //     const text = ctx.message.text.trim();
+  //     if (!user_id || !text) return;
+
+  //     const user = await this.botModel.findOne({ user_id });
+  //     if (!user || !user.phone_number) return this.start(ctx);
+
+  //     if (!user.name) return this.onName(ctx);
+
+  //     if (!user.location) {
+  //       return ctx.reply("❗️ Iltimos, avval joylashuvingizni yuboring!", {
+  //         reply_markup: {
+  //           keyboard: [
+  //             [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+  //           ],
+  //           resize_keyboard: true,
+  //           one_time_keyboard: true,
+  //         },
+  //       });
+  //     }
+
+  //     if (text === "✅ Ha") {
+  //       this.kasallikMap.set(user_id, true);
+  //       return ctx.reply(
+  //         "📝 Farzandingizda qanday kasallik borligini yozing:",
+  //         Markup.removeKeyboard()
+  //       );
+  //     }
+
+  //     if (text === "❌ Yo‘q") {
+  //       user.illness = "sog'lom";
+  //       await user.save();
+
+  //       await ctx.reply("✅ Farzandingiz sog'lom deb belgilandi.", {
+  //         reply_markup: { remove_keyboard: true },
+  //       });
+
+  //       return ctx.reply("📍 Endi joylashuvingizni yuboring:", {
+  //         reply_markup: {
+  //           keyboard: [
+  //             [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+  //           ],
+  //           resize_keyboard: true,
+  //           one_time_keyboard: true,
+  //         },
+  //       });
+  //     }
+
+  //     if (this.kasallikMap.has(user_id)) {
+  //       user.illness = text;
+  //       await user.save();
+  //       this.kasallikMap.delete(user_id);
+  //       await ctx.reply(`✅ Kasallik saqlandi: ${text}`);
+  //     }
+
+  //     // Check for completeness
+  //     if (!user.phone_number || !user.name || !user.location || !user.illness) {
+  //       return ctx.reply("⚠️ Iltimos, barcha bosqichlarni to‘ldiring.");
+  //     }
+
+  //     return ctx.reply("🎉 Siz muvaffaqiyatli ro'yxatdan o'tdingiz!");
+  //   } catch (error) {
+  //     console.error("handleText xatolik:", error);
+  //     return ctx.reply(
+  //       "⚠️ Ichki xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring."
+  //     );
+  //   }
+  // }
+
+  async handleText(ctx: Context) {
+  try {
+    const user_id = ctx.from?.id;
+    if (!ctx.message || !("text" in ctx.message)) return;
+
+    const text = ctx.message.text.trim();
+    console.log("📩 Kiritilgan matn:", text);
+
+    if (!user_id || !text) return;
+
+    const user = await this.botModel.findOne({ user_id });
+    console.log("🔎 Foydalanuvchi:", user);
+
+    if (!user) {
+      console.log("⚠️ User topilmadi. start() chaqirildi.");
+      return this.start(ctx);
+    }
+
+    if (!user.phone_number) {
+      console.log("📞 Telefon raqam yo‘q. start() chaqirildi.");
+      return this.start(ctx);
+    }
+
+    if (!user.name) {
+      console.log("🧑‍💼 Ism yo‘q. onName() chaqirildi.");
+      return this.onName(ctx);
+    }
+
+    if (!user.location) {
+      console.log("📍 Joylashuv yo‘q. onLocation() chaqirildi.");
+      return this.onLocation(ctx);
+    }
+
+    if (!user.illness && !["✅ Ha", "❌ Yo‘q"].includes(text)) {
+      console.log("🩺 Kasallik hali belgilanmagan. askIllnessQuestion() chaqirildi.");
+      return this.askIllnessQuestion(ctx);
+    }
+
+    if (text === "✅ Ha") {
+      console.log("✅ Ha tanlandi — kasallik nomi kutilmoqda.");
+      this.kasallikMap.set(user_id, true);
+      return ctx.reply(
+        "📝 Farzandingizda qanday kasallik borligini yozing:",
+        Markup.removeKeyboard()
+      );
+    }
+
+    if (text === "❌ Yo‘q") {
+      console.log("❌ Yo‘q tanlandi — sog'lom deb belgilanyapti.");
+      user.illness = "sog'lom";
+      await user.save();
+      return ctx.reply("✅ Farzandingiz sog'lom deb belgilandi.");
+    }
+
+    if (this.kasallikMap.has(user_id)) {
+      console.log("📝 Kasallik nomi kiritilyapti:", text);
+      user.illness = text;
+      await user.save();
+      this.kasallikMap.delete(user_id);
+      await ctx.reply(`✅ Kasallik saqlandi: ${text}`);
+    }
+
+    // Barcha maydonlar to‘ldirilganmi
+    if (
+      user.phone_number &&
+      user.name &&
+      user.location &&
+      user.illness
+    ) {
+      console.log("🎉 Barcha bosqichlar tugadi.");
+      return ctx.reply("🎉 Siz muvaffaqiyatli ro'yxatdan o'tdingiz!");
+    }
+
+    // Qolgan holatlar
+    console.log("⚠️ Ma'lumot to‘liq emas. Qayta tekshiruv.");
+    if (!user.phone_number) return this.start(ctx);
+    if (!user.name) return this.onName(ctx);
+    if (!user.location) return this.onLocation(ctx);
+    if (!user.illness) return this.askIllnessQuestion(ctx);
+
+  } catch (error) {
+    console.error("🚨 handleText xatolik:", error);
+    return ctx.reply(
+      "⚠️ Ichki xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring."
+    );
+  }
+}
+
+
+}
+//-------------------
+
+
+
+so many mistece have but work
+
+// import { Injectable } from "@nestjs/common";
+// import { Context } from "telegraf";
+// import { InjectModel } from "@nestjs/mongoose";
+// import { Model } from "mongoose";
+// import { Bot, BotDocument } from "./schema/bot.schema";
+
+// @Injectable()
+// export class BotService {
+//   private kasallikMap = new Map<number, boolean>();
+
+//   constructor(
+//     @InjectModel(Bot.name) private readonly botModel: Model<BotDocument>
+//   ) {}
+
+//   async start(ctx: Context) {
+//     await ctx.reply("Assalomu alaykum! Iltimos telefon raqamingizni yuboring", {
+//       reply_markup: {
+//         keyboard: [
+//           [{ text: "📞 Telefon raqamni yuborish", request_contact: true }],
+//         ],
+//         resize_keyboard: true,
+//         one_time_keyboard: true,
+//       },
+//     });
+//   }
+
+//   async onContact(ctx: Context) {
+//     const user_id = ctx.from?.id;
+//     if (!user_id || !ctx.message) return;
+
+//     if ("contact" in ctx.message && ctx.message.contact?.phone_number) {
+//       const contact = ctx.message.contact;
+//       let user = await this.botModel.findOne({ user_id });
+
+//       if (user) {
+//         user.phone_number = contact.phone_number;
+//         await user.save();
+//       } else {
+//         await this.botModel.create({
+//           user_id,
+//           phone_number: contact.phone_number,
+//           user_name: ctx.from?.username ?? "",
+//           first_name: ctx.from?.first_name ?? "",
+//           last_name: ctx.from?.last_name ?? "",
+//           lang: ctx.from?.language_code ?? "",
+//         });
+//       }
+
+//       await ctx.reply("✅ Endi ismingizni yuboring", {
+//         reply_markup: { remove_keyboard: true },
+//       });
+//     } else {
+//       await ctx.reply("❗️ Telefon raqami aniqlanmadi.");
+//     }
+//   }
+
+//   async onName(ctx: Context) {
+//     const user_id = ctx.from?.id;
+//     if (!user_id || !ctx.message || !("text" in ctx.message)) return;
+//     const text = ctx.message.text.trim();
+
+//     if (!/^[a-zA-Z\u0400-\u04FF\s'-]{2,}$/.test(text)) {
+//       return ctx.reply("❗️ Iltimos, faqat harflardan iborat ismingizni yozing.");
+//     }
+
+//     const user = await this.botModel.findOne({ user_id });
+//     if (!user) return;
+
+//     user.name = text;
+//     await user.save();
+
+//     await ctx.reply(`✅ ${text} ismingiz saqlandi.`);
+//     await ctx.reply("📍 Endi joylashuvingizni yuboring:", {
+//       reply_markup: {
+//         keyboard: [
+//           [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+//         ],
+//         resize_keyboard: true,
+//         one_time_keyboard: true,
+//       },
+//     });
+//   }
+
+//   async onLocation(ctx: Context) {
+//     const user_id = ctx.from?.id;
+//     if (!user_id || !ctx.message) return;
+
+//     const user = await this.botModel.findOne({ user_id });
+//     if (!user) return ctx.reply("Iltimos, avval /start buyrug'ini bosing.");
+
+//     if ("location" in ctx.message && ctx.message.location) {
+//       const { latitude, longitude } = ctx.message.location;
+//       user.location = `${latitude},${longitude}`;
+//       await user.save();
+
+//       await ctx.reply("✅ Joylashuvingiz saqlandi.", {
+//         reply_markup: { remove_keyboard: true },
+//       });
+//       return this.askIllnessQuestion(ctx);
+//     }
+
+//     return ctx.reply("❗️ Iltimos, tugmani bosib joylashuv yuboring!", {
+//       reply_markup: {
+//         keyboard: [
+//           [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+//         ],
+//         resize_keyboard: true,
+//         one_time_keyboard: true,
+//       },
+//     });
+//   }
+
+//   async askIllnessQuestion(ctx: Context) {
+//     return ctx.reply("🩺 Farzandingizda hozirda biron kasallik bormi?", {
+//       reply_markup: {
+//         keyboard: [["✅ Ha", "❌ Yo‘q"]],
+//         resize_keyboard: true,
+//         one_time_keyboard: true,
+//       },
+//     });
+//   }
+
+//   async handleText(ctx: Context) {
+//     try {
+//       const user_id = ctx.from?.id;
+//       if (!ctx.message || !("text" in ctx.message)) return;
+
+//       const text = ctx.message.text.trim();
+//       console.log("📩 Kiritilgan matn:", text);
+
+//       if (!user_id || !text) return;
+
+//       const user = await this.botModel.findOne({ user_id });
+//       console.log("🔎 Foydalanuvchi:", user);
+
+//       if (!user) return this.start(ctx);
+//       if (!user.phone_number) return this.start(ctx);
+//       if (!user.name) return this.onName(ctx);
+//       if (!user.location) return this.onLocation(ctx);
+
+//       if (!user.illness && !["✅ Ha", "❌ Yo‘q"].includes(text)) {
+//         return this.askIllnessQuestion(ctx);
+//       }
+
+//       if (text === "✅ Ha") {
+//         this.kasallikMap.set(user_id, true);
+//         return ctx.reply(
+//           "📝 Farzandingizda qanday kasallik borligini yozing:",
+//           { reply_markup: { remove_keyboard: true } }
+//         );
+//       }
+
+//       if (text === "❌ Yo‘q") {
+//         user.illness = "sog'lom";
+//         await user.save();
+//         return ctx.reply("✅ Farzandingiz sog'lom deb belgilandi.");
+//       }
+
+//       if (this.kasallikMap.has(user_id)) {
+//         user.illness = text;
+//         await user.save();
+//         this.kasallikMap.delete(user_id);
+//         await ctx.reply(`✅ Kasallik saqlandi: ${text}`);
+//       }
+
+//       if (
+//         user.phone_number &&
+//         user.name &&
+//         user.location &&
+//         user.illness
+//       ) {
+//         return ctx.reply("🎉 Siz muvaffaqiyatli ro'yxatdan o'tdingiz!");
+//       }
+
+//       if (!user.phone_number) return this.start(ctx);
+//       if (!user.name) return this.onName(ctx);
+//       if (!user.location) return this.onLocation(ctx);
+//       if (!user.illness) return this.askIllnessQuestion(ctx);
+
+//     } catch (error) {
+//       console.error("🚨 handleText xatolik:", error);
+//       return ctx.reply(
+//         "⚠️ Ichki xatolik yuz berdi. Iltimos, qaytadan urinib ko‘ring."
+//       );
+//     }
+//   }
+// }
+
+//-----------
+
+
+not perfect but work 
+
+
+
+
+
+
+import { Injectable } from "@nestjs/common";
+import { Context } from "telegraf";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model } from "mongoose";
+import { Bot, BotDocument } from "./schema/bot.schema";
+
+@Injectable()
+export class BotService {
+  private kasallikMap = new Map<number, boolean>();
+
+  constructor(
+    @InjectModel(Bot.name) private readonly botModel: Model<BotDocument>
+  ) {}
+
+  async start(ctx: Context) {
+    try {
+      await ctx.reply("Assalomu alaykum! Iltimos telefon raqamingizni yuboring", {
+        reply_markup: {
+          keyboard: [
+            [{ text: "📞 Telefon raqamni yuborish", request_contact: true }],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+    } catch (error) {
+      console.error("Start error:", error);
+    }
+  }
+
+  async onContact(ctx: Context) {
+    try {
+      const user_id = ctx.from?.id;
+      if (!user_id || !ctx.message) return;
+
+      if ("contact" in ctx.message && ctx.message.contact?.phone_number) {
+        const contact = ctx.message.contact;
+        let user = await this.botModel.findOne({ user_id });
+
+        if (user) {
+          user.phone_number = contact.phone_number;
+          await user.save();
+        } else {
+          await this.botModel.create({
+            user_id,
+            phone_number: contact.phone_number,
+            user_name: ctx.from?.username ?? "",
+            first_name: ctx.from?.first_name ?? "",
+            last_name: ctx.from?.last_name ?? "",
+            lang: ctx.from?.language_code ?? "",
+          });
+        }
+
+        await ctx.reply("✅ Endi ismingizni yuboring", {
+          reply_markup: { remove_keyboard: true },
+        });
+      } else {
+        await ctx.reply("❗️ Telefon raqami aniqlanmadi.");
+      }
+    } catch (error) {
+      console.error("Contact error:", error);
+      await ctx.reply("⚠️ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.");
+    }
+  }
+
+  async onName(ctx: Context) {
+    try {
+      const user_id = ctx.from?.id;
+      if (!user_id || !ctx.message || !("text" in ctx.message)) return;
+      const text = ctx.message.text.trim();
+
+      if (!/^[a-zA-Z\u0400-\u04FF\s'-]{2,}$/.test(text)) {
+        return await ctx.reply("❗️ Iltimos, faqat harflardan iborat ismingizni yozing.");
+      }
+
+      const user = await this.botModel.findOne({ user_id });
+      if (!user) return;
+
+      user.name = text;
+      await user.save();
+
+      await ctx.reply(`✅ ${text} ismingiz saqlandi.`);
+      await ctx.reply("📍 Endi joylashuvingizni yuboring:", {
+        reply_markup: {
+          keyboard: [
+            [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+    } catch (error) {
+      console.error("Name error:", error);
+      await ctx.reply("⚠️ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.");
+    }
+  }
+
+  async onLocation(ctx: Context) {
+    try {
+      const user_id = ctx.from?.id;
+      if (!user_id || !ctx.message) return;
+
+      const user = await this.botModel.findOne({ user_id });
+      if (!user) return await ctx.reply("Iltimos, avval /start buyrug'ini bosing.");
+
+      if ("location" in ctx.message && ctx.message.location) {
+        const { latitude, longitude } = ctx.message.location;
+        user.location = `${latitude},${longitude}`;
+        await user.save();
+
+        await ctx.reply("✅ Joylashuvingiz saqlandi.", {
+          reply_markup: { remove_keyboard: true },
+        });
+        return await this.askIllnessQuestion(ctx);
+      }
+
+      await ctx.reply("❗️ Iltimos, tugmani bosib joylashuv yuboring!", {
+        reply_markup: {
+          keyboard: [
+            [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+    } catch (error) {
+      console.error("Location error:", error);
+      await ctx.reply("⚠️ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.");
+    }
+  }
+
+  async askIllnessQuestion(ctx: Context) {
+    try {
+      await ctx.reply("🩺 Farzandingizda hozirda biron kasallik bormi?", {
+        reply_markup: {
+          keyboard: [["✅ Ha", "❌ Yo'q"]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+    } catch (error) {
+      console.error("Ask illness error:", error);
+    }
+  }
+
+  async handleText(ctx: Context) {
+    try {
+      const user_id = ctx.from?.id;
+      if (!ctx.message || !("text" in ctx.message)) return;
+
+      const text = ctx.message.text.trim();
+      console.log("📩 Kiritilgan matn:", text);
+
+      if (!user_id || !text) return;
+
+      const user = await this.botModel.findOne({ user_id });
+      console.log("🔎 Foydalanuvchi:", user);
+
+      if (!user) return await this.start(ctx);
+      if (!user.phone_number) return await this.start(ctx);
+      if (!user.name) return await this.onName(ctx);
+      if (!user.location) return await this.onLocation(ctx);
+
+      if (!user.illness && !["✅ Ha", "❌ Yo'q"].includes(text)) {
+        return await this.askIllnessQuestion(ctx);
+      }
+
+      if (text === "✅ Ha") {
+        this.kasallikMap.set(user_id, true);
+        return await ctx.reply(
+          "📝 Farzandingizda qanday kasallik borligini yozing:",
+          { reply_markup: { remove_keyboard: true } }
+        );
+      }
+
+      if (text === "❌ Yo'q") {
+        user.illness = "sog'lom";
+        await user.save();
+        return await ctx.reply("✅ Farzandingiz sog'lom deb belgilandi.");
+      }
+
+      if (this.kasallikMap.has(user_id)) {
+        user.illness = text;
+        await user.save();
+        this.kasallikMap.delete(user_id);
+        await ctx.reply(`✅ Kasallik saqlandi: ${text}`);
+      }
+
+      if (user.phone_number && user.name && user.location && user.illness) {
+        return await ctx.reply("🎉 Siz muvaffaqiyatli ro'yxatdan o'tdingiz!");
+      }
+
+      if (!user.phone_number) return await this.start(ctx);
+      if (!user.name) return await this.onName(ctx);
+      if (!user.location) return await this.onLocation(ctx);
+      if (!user.illness) return await this.askIllnessQuestion(ctx);
+
+    } catch (error) {
+      console.error("🚨 handleText xatolik:", error);
+      await ctx.reply(
+        "⚠️ Ichki xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring."
+      );
+    }
+  }
+}
+
+//------------
+
+
+
+
+it work but have mistece
+
+
+import { Injectable } from "@nestjs/common";
+import { Context } from "telegraf";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model } from "mongoose";
+import { Bot, BotDocument } from "./schema/bot.schema";
+
+@Injectable()
+export class BotService {
+  private kasallikMap = new Map<number, boolean>();
+
+  constructor(
+    @InjectModel(Bot.name) private readonly botModel: Model<BotDocument>
+  ) {}
+
+  async start(ctx: Context) {
+    try {
+      await ctx.reply("Assalomu alaykum! Iltimos telefon raqamingizni yuboring", {
+        reply_markup: {
+          keyboard: [
+            [{ text: "📞 Telefon raqamni yuborish", request_contact: true }],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+    } catch (error) {
+      console.error("Start error:", error);
+      await ctx.reply("⚠️ Botni ishga tushirishda xatolik. Iltimos, qaytadan urinib ko'ring.");
+    }
+  }
+
+  async onContact(ctx: Context) {
+    try {
+      const user_id = ctx.from?.id;
+      if (!user_id || !ctx.message) return;
+
+      if ("contact" in ctx.message && ctx.message.contact?.phone_number) {
+        const contact = ctx.message.contact;
+        let user = await this.botModel.findOne({ user_id });
+
+        if (user) {
+          user.phone_number = contact.phone_number;
+          await user.save();
+        } else {
+          user = await this.botModel.create({
+            user_id,
+            phone_number: contact.phone_number,
+            user_name: ctx.from?.username ?? "",
+            first_name: ctx.from?.first_name ?? "",
+            last_name: ctx.from?.last_name ?? "",
+            lang: ctx.from?.language_code ?? "",
+          });
+        }
+
+        await ctx.reply("✅ Endi ismingizni yuboring", {
+          reply_markup: { remove_keyboard: true },
+        });
+      } else {
+        await ctx.reply("❗️ Telefon raqami aniqlanmadi.");
+      }
+    } catch (error) {
+      console.error("Contact error:", error);
+      await ctx.reply("⚠️ Telefon raqamni qabul qilishda xatolik. Iltimos, qaytadan urinib ko'ring.");
+    }
+  }
+
+  async onName(ctx: Context) {
+    try {
+      const user_id = ctx.from?.id;
+      if (!user_id || !ctx.message || !("text" in ctx.message)) return;
+      const text = ctx.message.text.trim();
+
+      if (!/^[a-zA-Z\u0400-\u04FF\s'-]{2,}$/.test(text)) {
+        return await ctx.reply("❗️ Iltimos, faqat harflardan iborat ismingizni yozing (kamida 2 belgi).");
+      }
+
+      const user = await this.botModel.findOne({ user_id });
+      if (!user) return await this.start(ctx);
+
+      user.name = text;
+      await user.save();
+
+      await ctx.reply(`✅ ${text} ismingiz saqlandi.`);
+      await ctx.reply("📍 Endi joylashuvingizni yuboring:", {
+        reply_markup: {
+          keyboard: [
+            [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+    } catch (error) {
+      console.error("Name error:", error);
+      await ctx.reply("⚠️ Ismni qabul qilishda xatolik. Iltimos, qaytadan urinib ko'ring.");
+    }
+  }
+
+  async onLocation(ctx: Context) {
+    try {
+      const user_id = ctx.from?.id;
+      if (!user_id || !ctx.message) return;
+
+      const user = await this.botModel.findOne({ user_id });
+      if (!user) return await this.start(ctx);
+
+      if ("location" in ctx.message && ctx.message.location) {
+        const { latitude, longitude } = ctx.message.location;
+        user.location = `${latitude},${longitude}`;
+        await user.save();
+
+        await ctx.reply("✅ Joylashuvingiz saqlandi.", {
+          reply_markup: { remove_keyboard: true },
+        });
+        return await this.askIllnessQuestion(ctx);
+      }
+
+      await ctx.reply("❗️ Iltimos, tugmani bosib joylashuv yuboring!", {
+        reply_markup: {
+          keyboard: [
+            [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+    } catch (error) {
+      console.error("Location error:", error);
+      await ctx.reply("⚠️ Joylashuvni qabul qilishda xatolik. Iltimos, qaytadan urinib ko'ring.");
+    }
+  }
+
+  async askIllnessQuestion(ctx: Context) {
+    try {
+      await ctx.reply("🩺 Farzandingizda hozirda biron kasallik bormi?", {
+        reply_markup: {
+          keyboard: [["✅ Ha", "❌ Yo'q"]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+    } catch (error) {
+      console.error("Ask illness error:", error);
+    }
+  }
+
+  async handleText(ctx: Context) {
+    try {
+      const user_id = ctx.from?.id;
+      if (!ctx.message || !("text" in ctx.message)) return;
+
+      const text = ctx.message.text.trim();
+      console.log("Received text:", text, "from user:", user_id);
+
+      if (!user_id || !text) return;
+
+      const user = await this.botModel.findOne({ user_id });
+      if (!user) return await this.start(ctx);
+
+      // Handle illness question response
+      if (!user.illness && (text === "✅ Ha" || text === "❌ Yo'q" || text === "❌ Yoʻq")) {
+        if (text === "✅ Ha") {
+          this.kasallikMap.set(user_id, true);
+          return await ctx.reply(
+            "📝 Farzandingizda qanday kasallik borligini yozing:",
+            { reply_markup: { remove_keyboard: true } }
+          );
+        } else {
+          user.illness = "sog'lom";
+          await user.save();
+          this.kasallikMap.delete(user_id);
+          return await ctx.reply("✅ Farzandingiz sog'lom deb belgilandi.");
+        }
+      }
+
+      // Handle illness description
+      if (this.kasallikMap.has(user_id)) {
+        if (text.length < 2) {
+          return await ctx.reply("❗️ Iltimos, kamida 2 ta belgidan iborat kasallik nomini yozing");
+        }
+        
+        user.illness = text;
+        await user.save();
+        this.kasallikMap.delete(user_id);
+        return await ctx.reply(`✅ Kasallik saqlandi: ${text}`);
+      }
+
+      // Check if we need to ask for missing information
+      if (!user.phone_number) return await this.start(ctx);
+      if (!user.name) return await this.onName(ctx);
+      if (!user.location) return await this.onLocation(ctx);
+      if (!user.illness) return await this.askIllnessQuestion(ctx);
+
+      // If all information is complete
+      if (user.phone_number && user.name && user.location && user.illness) {
+        return await ctx.reply("🎉 Siz muvaffaqiyatli ro'yxatdan o'tdingiz!");
+      }
+
+    } catch (error) {
+      console.error("Error in handleText:", error);
+      await ctx.reply("⚠️ Ichki xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.");
+    }
+  }
+
+
+}
+
+
+//----------------------------
