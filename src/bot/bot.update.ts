@@ -11,10 +11,10 @@ export class BotUpdate {
     return this.BotService.start(ctx);
   }
 
-   @Action('✅ Ha')
-  async onNo(ctx: Context) {
-    return this.BotService.onNo(ctx)
-  }
+  //  @Action('✅ Ha')
+  // async onNo(ctx: Context) {
+  //   return this.BotService.onNo(ctx)
+  // }
 
   @On("contact")
   async OnContact(@Ctx() ctx: Context) {
