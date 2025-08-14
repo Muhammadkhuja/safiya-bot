@@ -7,7 +7,7 @@ import { Bot, BotDocument } from "./schema/bot.schema";
 @Injectable()
 export class BotService {
   private kasallikMap = new Map<number, boolean>();
-  private userStateMap = new Map<number, string>(); // User state tracking
+  private userStateMap = new Map<number, string>();
 
   constructor(
     @InjectModel(Bot.name) private readonly botModel: Model<BotDocument>
@@ -19,9 +19,8 @@ export class BotService {
       if (!user_id) return;
 
       const user = await this.botModel.findOne({ user_id });
-      
+
       if (!user) {
-        // Yangi foydalanuvchi yaratish
         await this.botModel.create({
           user_id: user_id,
           user_name: ctx.from?.username || "",
@@ -30,19 +29,16 @@ export class BotService {
           lang: ctx.from?.language_code || "",
         });
 
-        this.userStateMap.set(user_id, 'phone');
+        this.userStateMap.set(user_id, "phone");
         await ctx.replyWithHTML(
           `Safiya Baby Spa botiga hush kelibsiz! 👋\n\nIltimos, <b>📞 Telefon raqamni yuborish</b> tugmasini bosing`,
-          {
-            ...Markup.keyboard([
-              [Markup.button.contactRequest("📞 Telefon raqamni yuborish")],
-            ])
-              .oneTime()
-              .resize(),
-          }
+          Markup.keyboard([
+            [Markup.button.contactRequest("📞 Telefon raqamni yuborish")],
+          ])
+            .oneTime()
+            .resize()
         );
       } else {
-        // Mavjud foydalanuvchi uchun tekshirish
         await this.checkUserProgress(ctx, user);
       }
     } catch (error) {
@@ -53,52 +49,44 @@ export class BotService {
     }
   }
 
-  // Foydalanuvchi ma'lumotlarini tekshirish va keyingi bosqichga o'tkazish
   async checkUserProgress(ctx: Context, user: any) {
     const user_id = ctx.from?.id;
     if (!user_id) return;
 
     if (!user.phone_number) {
-      this.userStateMap.set(user_id, 'phone');
+      this.userStateMap.set(user_id, "phone");
       await ctx.replyWithHTML(
         `Iltimos, <b>📞 Telefon raqamni yuborish</b> tugmasini bosing`,
-        {
-          ...Markup.keyboard([
-            [Markup.button.contactRequest("📞 Telefon raqamni yuborish")],
-          ])
-            .oneTime()
-            .resize(),
-        }
+        Markup.keyboard([
+          [Markup.button.contactRequest("📞 Telefon raqamni yuborish")],
+        ])
+          .oneTime()
+          .resize()
       );
     } else if (!user.name) {
-      this.userStateMap.set(user_id, 'name');
-      await ctx.reply("✅ Endi ismingizni yuboring", {
-        reply_markup: { remove_keyboard: true },
-      });
+      this.userStateMap.set(user_id, "name");
+      await ctx.reply("✅ Endi ismingizni yuboring");
     } else if (!user.location) {
-      this.userStateMap.set(user_id, 'location');
-      await ctx.reply("📍 Endi joylashuvingizni yuboring:", {
-        reply_markup: {
-          keyboard: [
-            [{ text: "📍 Joylashuvni yuborish", request_location: true }],
-          ],
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        },
-      });
+      this.userStateMap.set(user_id, "location");
+      await ctx.reply(
+        "📍 Endi joylashuvingizni yuboring:",
+        Markup.keyboard([
+          [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+        ])
+          .resize()
+          .oneTime()
+      );
     } else if (!user.illness) {
-      this.userStateMap.set(user_id, 'illness_question');
+      this.userStateMap.set(user_id, "illness_question");
       await this.askIllnessQuestion(ctx);
     } else {
-      // Barcha ma'lumotlar to'liq
       this.userStateMap.delete(user_id);
       this.kasallikMap.delete(user_id);
       await ctx.reply(
         "🎉 Siz allaqachon ro'yxatdan o'tgansiz!\n\n📋 Sizning ma'lumotlaringiz:\n" +
-        `👤 Ism: ${user.name}\n` +
-        `📞 Telefon: ${user.phone_number}\n` +
-        `🏥 Kasallik: ${user.illness}`,
-        { ...Markup.removeKeyboard() }
+          `👤 Ism: ${user.name}\n` +
+          `📞 Telefon: ${user.phone_number}\n` +
+          `🏥 Kasallik: ${user.illness}`
       );
     }
   }
@@ -126,13 +114,12 @@ export class BotService {
           });
         }
 
-        // Keyingi bosqichga o'tish
-        this.userStateMap.set(user_id, 'name');
-        await ctx.reply("✅ Telefon raqam saqlandi. Endi ismingizni yuboring:", {
-          reply_markup: { remove_keyboard: true },
-        });
+        this.userStateMap.set(user_id, "name");
+        await ctx.reply("✅ Telefon raqam saqlandi. Endi ismingizni yuboring:");
       } else {
-        await ctx.reply("❗️ Telefon raqami aniqlanmadi. Iltimos, tugmani bosing.");
+        await ctx.reply(
+          "❗️ Telefon raqami aniqlanmadi. Iltimos, tugmani bosing."
+        );
       }
     } catch (error) {
       console.error("Contact error:", error);
@@ -146,10 +133,9 @@ export class BotService {
     try {
       const user_id = ctx.from?.id;
       if (!user_id || !ctx.message || !("text" in ctx.message)) return;
-      
+
       const text = ctx.message.text.trim();
 
-      // Ism validatsiyasi
       if (!/^[a-zA-ZА-Яа-я\u0400-\u04FF\s'-]{2,50}$/.test(text)) {
         return await ctx.reply(
           "❗️ Iltimos, faqat harflardan iborat ismingizni yozing (2-50 belgi orasida)."
@@ -162,18 +148,16 @@ export class BotService {
       user.name = text;
       await user.save();
 
-      // Keyingi bosqichga o'tish
-      this.userStateMap.set(user_id, 'location');
+      this.userStateMap.set(user_id, "location");
       await ctx.reply(`✅ ${text} ismingiz saqlandi.`);
-      await ctx.reply("📍 Endi joylashuvingizni yuboring:", {
-        reply_markup: {
-          keyboard: [
-            [{ text: "📍 Joylashuvni yuborish", request_location: true }],
-          ],
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        },
-      });
+      await ctx.reply(
+        "📍 Endi joylashuvingizni yuboring:",
+        Markup.keyboard([
+          [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+        ])
+          .resize()
+          .oneTime()
+      );
     } catch (error) {
       console.error("Name error:", error);
       await ctx.reply(
@@ -195,23 +179,19 @@ export class BotService {
         user.location = `${latitude},${longitude}`;
         await user.save();
 
-        // Keyingi bosqichga o'tish
-        this.userStateMap.set(user_id, 'illness_question');
-        await ctx.reply("✅ Joylashuvingiz saqlandi.", {
-          reply_markup: { remove_keyboard: true },
-        });
+        this.userStateMap.set(user_id, "illness_question");
+        await ctx.reply("✅ Joylashuvingiz saqlandi.");
         return await this.askIllnessQuestion(ctx);
       }
 
-      await ctx.reply("❗️ Iltimos, tugmani bosib joylashuv yuboring!", {
-        reply_markup: {
-          keyboard: [
-            [{ text: "📍 Joylashuvni yuborish", request_location: true }],
-          ],
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        },
-      });
+      await ctx.reply(
+        "❗️ Iltimos, tugmani bosib joylashuv yuboring!",
+        Markup.keyboard([
+          [{ text: "📍 Joylashuvni yuborish", request_location: true }],
+        ])
+          .resize()
+          .oneTime()
+      );
     } catch (error) {
       console.error("Location error:", error);
       await ctx.reply(
@@ -222,15 +202,15 @@ export class BotService {
 
   async askIllnessQuestion(ctx: Context) {
     try {
-      await ctx.reply("🩺 Farzandingizda hozirda biron kasallik bormi?", {
-        reply_markup: {
-          keyboard: [["✅ Ha", "❌ Yo'q"]],
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        },
-      });
+      await ctx.reply(
+        "🩺 Farzandingizda hozirda biron kasallik bormi?",
+        Markup.keyboard([["✅ Ha", "❌ Yo'q"]])
+          .resize()
+          .oneTime()
+      );
     } catch (error) {
       console.error("Ask illness error:", error);
+      await ctx.reply("⚠️ Savolni yuborishda xatolik yuz berdi.");
     }
   }
 
@@ -240,54 +220,49 @@ export class BotService {
       if (!ctx.message || !("text" in ctx.message) || !user_id) return;
 
       const text = ctx.message.text.trim();
-      console.log("Received text:", text, "from user:", user_id);
-
-      if (!text) return;
-
       const user = await this.botModel.findOne({ user_id });
       if (!user) return await this.start(ctx);
 
       const currentState = this.userStateMap.get(user_id);
-      console.log("Current user state:", currentState);
 
-      // Har xil state bo'yicha ishlov berish
       switch (currentState) {
-        case 'phone':
-          await ctx.reply("❗️ Iltimos, telefon raqamingizni tugma orqali yuboring!");
+        case "phone":
+          await ctx.reply(
+            "❗️ Iltimos, telefon raqamingizni tugma orqali yuboring!"
+          );
           break;
 
-        case 'name':
+        case "name":
           await this.onName(ctx);
           break;
 
-        case 'location':
-          await ctx.reply("❗️ Iltimos, joylashuvingizni tugma orqali yuboring!");
+        case "location":
+          await ctx.reply(
+            "❗️ Iltimos, joylashuvingizni tugma orqali yuboring!"
+          );
           break;
 
-        case 'illness_question':
+        case "illness_question":
           if (text === "✅ Ha" || text === "❌ Yo'q" || text === "❌ Yoʻq") {
             if (text === "✅ Ha") {
               this.kasallikMap.set(user_id, true);
-              this.userStateMap.set(user_id, 'illness_description');
-              return await ctx.reply(
-                "📝 Farzandingizda qanday kasallik borligini yozing:",
-                { reply_markup: { remove_keyboard: true } }
+              this.userStateMap.set(user_id, "illness_description");
+              await ctx.reply(
+                "📝 Farzandingizda qanday kasallik borligini yozing:"
               );
             } else {
               user.illness = "sog'lom";
               await user.save();
               this.kasallikMap.delete(user_id);
               this.userStateMap.delete(user_id);
-              
-              await ctx.reply("✅ Ma'lumotlaringiz to'liq saqlandi!", {
-                reply_markup: { remove_keyboard: true }
-              });
-              return await ctx.reply(
+
+              await ctx.reply("✅ Ma'lumotlaringiz to'liq saqlandi!");
+              await ctx.reply(
                 "🎉 Siz muvaffaqiyatli ro'yxatdan o'tdingiz!\n\n" +
-                "📋 Sizning ma'lumotlaringiz:\n" +
-                `👤 Ism: ${user.name}\n` +
-                `📞 Telefon: ${user.phone_number}\n` +
-                `🏥 Holat: Sog'lom`
+                  "📋 Sizning ma'lumotlaringiz:\n" +
+                  `👤 Ism: ${user.name}\n` +
+                  `📞 Telefon: ${user.phone_number}\n` +
+                  `🏥 Holat: Sog'lom`
               );
             }
           } else {
@@ -295,11 +270,12 @@ export class BotService {
           }
           break;
 
-        case 'illness_description':
+        case "illness_description":
           if (text.length < 2) {
-            return await ctx.reply(
+            await ctx.reply(
               "❗️ Iltimos, kamida 2 ta belgidan iborat kasallik nomini yozing"
             );
+            return;
           }
 
           user.illness = text;
@@ -307,29 +283,20 @@ export class BotService {
           this.kasallikMap.delete(user_id);
           this.userStateMap.delete(user_id);
 
-          await ctx.reply(`✅ Ma'lumotlaringiz to'liq saqlandi!`, {
-            reply_markup: { remove_keyboard: true }
-          });
-          return await ctx.reply(
+          await ctx.reply(`✅ Ma'lumotlaringiz to'liq saqlandi!`);
+          await ctx.reply(
             "🎉 Siz muvaffaqiyatli ro'yxatdan o'tdingiz!\n\n" +
-            "📋 Sizning ma'lumotlaringiz:\n" +
-            `👤 Ism: ${user.name}\n` +
-            `📞 Telefon: ${user.phone_number}\n` +
-            `🏥 Kasallik: ${text}`
-          );
-
-        default:
-          // Agar barcha ma'lumotlar to'liq bo'lsa
-          if (user.phone_number && user.name && user.location && user.illness) {
-            return await ctx.reply(
-              "🎉 Siz allaqachon ro'yxatdan o'tgansiz!\n\n" +
               "📋 Sizning ma'lumotlaringiz:\n" +
               `👤 Ism: ${user.name}\n` +
               `📞 Telefon: ${user.phone_number}\n` +
-              `🏥 Kasallik: ${user.illness}`
-            );
+              `🏥 Kasallik: ${text}`
+          );
+          break;
+
+        default:
+          if (user.phone_number && user.name && user.location && user.illness) {
+            await ctx.reply("🎉 Siz allaqachon ro'yxatdan o'tgansiz!");
           } else {
-            // To'lmagan ma'lumotlarni tekshirish
             await this.checkUserProgress(ctx, user);
           }
           break;
@@ -339,22 +306,6 @@ export class BotService {
       await ctx.reply(
         "⚠️ Ichki xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring."
       );
-    }
-  }
-
-  // Ma'lumotlarni tozalash (agar kerak bo'lsa)
-  async resetUser(ctx: Context) {
-    try {
-      const user_id = ctx.from?.id;
-      if (!user_id) return;
-
-      this.userStateMap.delete(user_id);
-      this.kasallikMap.delete(user_id);
-      
-      await this.botModel.deleteOne({ user_id });
-      await ctx.reply("🔄 Ma'lumotlaringiz tozalandi. /start buyrug'ini yuboring.");
-    } catch (error) {
-      console.error("Reset error:", error);
     }
   }
 }
